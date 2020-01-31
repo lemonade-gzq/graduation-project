@@ -1,0 +1,35 @@
+
+import pandas as pd
+import numpy as np
+'''读入原始数据并转为list'''
+
+data_pop18 = pd.read_csv('E:/kecheng/graduation project/data/pd_data_Density_18_957.csv',engine='python',header=0)
+
+data_pop18_fid=data_pop18.iloc[:,0]#标识数组
+data_pop18_fid=np.array(data_pop18_fid)
+
+data_pop18_density=data_pop18.iloc[:,1:]
+data_pop18_density=np.array(data_pop18_density)
+
+# print(data_pop18_density[0,:])
+
+data_result_fid=data_pop18_fid
+m=0
+
+for i in range(np.size(data_pop18_fid)-1):
+    if data_pop18_fid[i+1]-data_pop18_fid[i]!=1:
+        r=data_pop18_fid[i+1]-data_pop18_fid[i]
+        for j in range(r-1):
+            data_pop18_density=np.insert(data_pop18_density,i+j+1+m,0,axis=0)
+            data_result_fid=np.insert(data_result_fid,i+j+1+m,0)
+        m=m+r-1
+# print(data_pop18_density)
+# print(data_result_fid)
+
+data_result_fid=data_result_fid.reshape(np.size(data_result_fid),1)
+data_pop18_density=np.append(data_pop18_density,data_result_fid,axis=1)
+# print(data_pop18_density)
+
+data_pop18_density = pd.DataFrame(data_pop18_density)
+data_pop18_density=data_pop18_density.astype('float32')
+data_pop18_density.to_csv('E:/kecheng/graduation project/data/pd_data_Density_18_957integrity.csv')
