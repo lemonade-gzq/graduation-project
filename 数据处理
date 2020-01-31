@@ -1,0 +1,46 @@
+import pandas as pd
+import numpy as np
+'''读入原始数据并转为list'''
+
+data_pop18 = pd.read_csv('E:/kecheng/graduation project/data/chinatenpop18 _957.csv',engine='python',header=0)
+
+
+data_pop18_fid=data_pop18.iloc[0:1038397,2]#标识数组
+data_pop18_fid=np.array(data_pop18_fid)
+data_pop18_fid=np.append(data_pop18_fid,-1)
+print(data_pop18_fid[:])
+
+
+data_pop18 =data_pop18.iloc[0:1038397,3:75]
+data_pop18=np.array(data_pop18).astype('float32')#文件数组
+# print(data_pop18[-2,:])
+
+data18_Density=np.zeros((40302,73))#结果数组
+data_all=np.zeros(1)#过渡数组
+
+
+pop_density=0
+
+
+for j in range(72):
+    k=0
+    fid = data_pop18_fid[0]
+    data_all = np.zeros(1)  # 过渡数组
+    for i in range(1038397):
+        if data_pop18_fid[i]==fid:
+            data_all= np.append(data_all,data_pop18[i,j])
+            fid=data_pop18_fid[i]
+        else:
+            data18_Density[k,0]=fid
+            fid=data_pop18_fid[i]
+            data18_Density[k,j+1]=np.mean(data_all[1:])
+            # print(np.size(data_all))
+            data_all = np.zeros(1)  # 过渡数组
+            data_all = np.append(data_all, data_pop18[i, j])
+            k+=1
+# print(data18_Density[-2,:])
+# print(np.size(data18_Density,axis=0))
+
+data18_Density = pd.DataFrame(data18_Density)
+data18_Density=data18_Density.astype('float32')
+data18_Density.to_csv('E:/kecheng/graduation project/data/pd_data_Density_18_957.csv')
