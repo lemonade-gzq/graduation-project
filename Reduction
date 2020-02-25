@@ -1,0 +1,185 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Mon Mar  4 16:24:39 2019
+
+@author: HP
+"""
+import keras
+from sklearn.model_selection import train_test_split
+from keras.preprocessing import sequence
+from keras.models import Sequential
+from keras.layers import Dense,Embedding, Masking
+from keras.layers import LSTM
+from keras.datasets import imdb
+from keras.models import Model
+import matplotlib.pyplot as plt
+from keras.layers import Dropout
+import time
+import numpy as np
+import pandas as pd
+from sklearn.model_selection import train_test_split, cross_val_score
+from sklearn.preprocessing import StandardScaler
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.ensemble import ExtraTreesClassifier
+from sklearn.metrics import accuracy_score
+from keras.models import load_model
+
+np.random.seed(7)
+# 加载数据集
+dataframe = pd.read_excel("C:/Users/DELL/Documents/Tencent Files/1103376967/FileRecv/pd_data_19_train.xlsx",index='FID')
+dataset = dataframe.values
+dataset = dataset.astype('float32')
+dataframe32834 = pd.read_excel("C:/Users/DELL/Documents/Tencent Files/1103376967/FileRecv/pd_data_19_predict.xlsx",index='FID')
+dataframe32834 = dataframe32834.values
+dataframe32834 = dataframe32834.astype('float32')
+# 按照7:3的比例将数据集划分为训练集和测试集
+X, Y = dataset[:,1:73], dataset[:,-1]
+X_predic,Y_predic=dataframe32834[:,1:73],dataframe32834[:,-1]
+X_train, X_test, Y_train, Y_test = train_test_split(X, Y, test_size=0.3, random_state=0,shuffle=True)
+
+#设置LSTM网络结构，max_input最大输入样本数，features_len时序长度
+max_input = 500000
+features_len = 72
+BATCH_SIZE = 258 #已标记的有7228个 取前7228=258x28个
+BATCH_INDEX = 0
+
+#序贯模型，添加两层LSTM
+model = Sequential()
+model.add(Embedding(max_input, 128, input_length=features_len, mask_zero=True))
+
+# model.add(Masking(0.0))
+model.add(LSTM(64, dropout=0.6, recurrent_dropout=0.1, return_sequences=True))
+model.add(LSTM(64, dropout=0.6, recurrent_dropout=0.1))
+
+#第二LSTM层输出后接全连接层，该层为降维功能，将原特征个数降维为12，该层命名为Reduction
+model.add(Dense(12, activation='sigmoid',name = 'Reduction'))
+model.add(Dropout(0.6))
+
+#输出全连接层，输出神经元个数为1，激活函数选用sigmoid，大小表示01分类概率，阈值需自选
+model.add(Dense(1, activation='sigmoid',name = 'Classifier'))
+#运行模型，损失函数为二分类函数，精度指标为准确度
+model.compile(optimizer='rmsprop',loss='binary_crossentropy',  metrics=['accuracy'])#本函数编译模型以供训练
+model.summary()#打印出模型概况，它实际调用的是keras.utils.print_summary
+
+class LossHistory(keras.callbacks.Callback):
+    def on_train_begin(self, logs={}):
+        self.losses = {'batch':[], 'epoch':[]}
+        self.accuracy = {'batch':[], 'epoch':[]}
+        self.val_loss = {'batch':[], 'epoch':[]}
+        self.val_acc = {'batch':[], 'epoch':[]}
+
+    def on_batch_end(self, batch, logs={}):
+        self.losses['batch'].append(logs.get('loss'))
+        self.accuracy['batch'].append(logs.get('acc'))
+        self.val_loss['batch'].append(logs.get('val_loss'))
+        self.val_acc['batch'].append(logs.get('val_acc'))
+
+    def on_epoch_end(self, batch, logs={}):
+        self.losses['epoch'].append(logs.get('loss'))
+        self.accuracy['epoch'].append(logs.get('acc'))
+        self.val_loss['epoch'].append(logs.get('val_loss'))
+        self.val_acc['epoch'].append(logs.get('val_acc'))
+
+    def loss_plot(self, loss_type):
+        iters = range(len(self.losses[loss_type]))
+        plt.figure()
+        # acc
+        plt.plot(iters, self.accuracy[loss_type], 'r', label='train acc')
+        # loss
+        plt.plot(iters, self.losses[loss_type], 'g', label='train loss')
+        if loss_type == 'epoch':
+            # val_acc
+            plt.plot(iters, self.val_acc[loss_type], 'b', label='val acc')
+            # val_loss
+            plt.plot(iters, self.val_loss[loss_type], 'k', label='val loss')
+        plt.grid(True)
+        plt.xlabel(loss_type)
+        plt.ylabel('acc-loss')
+        plt.legend(loc="upper right")
+        plt.show()
+history = LossHistory()
+
+time_start=time.time()
+#开始拟合，迭代次数50
+for i in range (28):
+    X_batch = X_train[BATCH_INDEX: BATCH_INDEX + BATCH_SIZE,:]
+    Y_batch = Y_train[BATCH_INDEX: BATCH_INDEX + BATCH_SIZE, ]
+    model.fit(X_batch, Y_batch, epochs =10, batch_size=32, validation_data=(X_test, Y_test),shuffle=False, callbacks=[history])#本函数用以训练模型
+    BATCH_INDEX += BATCH_SIZE
+    BATCH_INDEX = 0 if BATCH_INDEX >= X_train.shape[0] else BATCH_INDEX
+    print(model.evaluate(X_test, Y_test, batch_size=128 ,verbose=1))#本函数按batch计算在某些输入数据上模型的误差eval[0]是loss,eval[1]是accuracy.
+
+time_end=time.time()
+print('******************time cost*******************',time_end-time_start,'s')
+#提取降维结果，maxpool1_output表示降维结果
+maxpool1_layer_model = Model(model.input, outputs=model.get_layer('Reduction').output)
+maxpool1_output = maxpool1_layer_model.predict(X_predic)#本函数按batch获得输入数据对应的输出   待预测的特征值
+maxpool1_output2=maxpool1_layer_model.predict(X_train)#训练样本的特征值
+# prediction_model=Model(model.input,outputs=model.get_layer('Classifier').output)
+# prediction=prediction_model.predict(X_test)
+
+history.loss_plot('epoch')
+#print(maxpool1_output2.shape)
+# print(prediction)
+
+model.save('my_model.h5')   # HDF5 file
+
+X2 = maxpool1_output2[:, :].astype(float)
+Y2 = Y_train
+# 将样本数据集标准化，并按照0.3的比例切分训练、校正集
+scaler = StandardScaler().fit(X2)
+stand_X2 = scaler.transform(X2)
+X2_train, X2_test, Y2_train, Y2_test = train_test_split(stand_X2, Y2, test_size=0.3, random_state=0)
+X2_predic=maxpool1_output
+scaler_predic = StandardScaler().fit(X2_predic)
+_X2_predic = scaler_predic.transform(X2_predic)
+
+# 构建随机森林模型，其中分类原则选择“entropy”，树木个数选择100
+rf = RandomForestClassifier(
+    criterion='entropy',
+    # criterion='gini',
+    n_estimators=150,
+    max_features=4,
+    random_state=17,  # 随机状态，默认由np.numpy生成
+    n_jobs=-1  # 并行使用的进程数，默认1个，如果设置为-1，该值为总的核数。
+)
+rf.fit(X2_train, Y2_train)  # 在数据集（X,Y）上训练模型。
+
+#特征重要性条形图
+# feature_importance = rf.feature_importances_
+# feature_importance = 100.0 * (feature_importance / feature_importance.max())
+# fi_threshold = 6
+# important_idx = np.where(feature_importance > fi_threshold)[0]
+# important_features = feature_importance[important_idx]
+# sorted_idx = np.argsort(feature_importance[important_idx])[::-1]
+# pos = np.arange(sorted_idx.shape[0]) + .5
+# plt.title('Feature Importance')
+# plt.barh(pos, feature_importance[important_idx][sorted_idx[::-1]],color='r',align='center')
+# plt.yticks(pos, important_features[sorted_idx[::-1]])
+# plt.xlabel('Relative Importance')
+# plt.draw()
+# plt.show()
+
+
+
+# 输出训练集和测试集的各类别预测概率Prob_tr、Prob_tx;输出测试集的预测分类结果Pred_tx
+Pred_s = rf.predict(X2_train)# 样本集X的结果。
+Prob_p = rf.predict_proba(_X2_predic) # 预测数据集X的概率值
+Pred_p = rf.predict(_X2_predic)  # 预测数据集X的结果。
+
+
+Prob_tx = pd.DataFrame(Prob_p)
+Prob_tx=Prob_tx.astype('float32')
+Prob_tx.to_csv('C:/Users/DELL/Documents/Tencent Files/1103376967/FileRecv/19年训练数据/概率.csv')
+Pred_tx = pd.DataFrame(Pred_p)
+Pred_tx=Pred_tx.astype('float32')
+Pred_tx.to_csv('C:/Users/DELL/Documents/Tencent Files/1103376967/FileRecv/19年训练数据/结果.csv')
+# 计算训练集的交叉验证结果CVScore_mean
+CVScore = cross_val_score(rf, X2_train, Y2_train,cv=5)#验证某个模型在某个训练集上的稳定性，输出k个预测精度。
+CVScore_mean = CVScore.mean()
+print(CVScore_mean)
+print("-------------------------------")
+
+# 计算测试集的分类精度
+AccuScore = accuracy_score(Y2_train, Pred_s)#预测值等于真实值的百分比。
+print(AccuScore)
