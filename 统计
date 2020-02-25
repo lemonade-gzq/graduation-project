@@ -1,0 +1,56 @@
+
+import pandas as pd
+import numpy as np
+'''读入原始数据并转为list'''
+
+data_pop19 = pd.read_csv('E:/kecheng/graduation project/data/pd_data_rate.csv',engine='python',header=0)
+
+data_pop19_shi=data_pop19.iloc[:,4]#标识数组
+data_pop19_shi=np.array(data_pop19_shi)
+
+data_pop19_xian=data_pop19.iloc[:,3]#标识数组
+data_pop19_xian=np.array(data_pop19_xian)
+
+data_pop19_rate=data_pop19.iloc[:,1]
+data_pop19_density=np.array(data_pop19_rate)
+
+
+data_all=np.zeros(1)#过渡数组
+data19_shi_mean=np.zeros((41263,2))#结果数组
+data19_shi_mean=data19_shi_mean.astype(np.str)
+m=0
+k=0
+
+# print(data_pop19_shi[0:2])
+for i in range(41263):
+    if data_pop19_shi[i]!=' ':
+        if data_pop19_shi[i]==data_pop19_shi[i+1]:
+            data_all=np.append(data_all,data_pop19_rate[i])
+            if data_pop19_xian[i]!=data_pop19_xian[i+1]:
+                data19_shi_mean[m,0]=data_pop19_xian[i]
+                m+=1
+                k+=1
+        else:
+            data19_shi_mean[m, 0] = data_pop19_xian[i]
+            data_all = np.append(data_all, data_pop19_rate[i])
+            m+=1
+            k+=1
+            for j in range(k):
+                data19_shi_mean[m-j-1,1]=np.mean(data_all[1:])
+            data_all=np.zeros(1)
+
+            k=0
+    else:
+        if data_pop19_xian[i]==data_pop19_xian[i+1]:
+            data_all=np.append(data_all,data_pop19_rate[i])
+        else:
+            data_all = np.append(data_all, data_pop19_rate[i])
+            data19_shi_mean[m, 0] = data_pop19_xian[i]
+            data19_shi_mean[m, 1] = np.mean(data_all[1:])
+            data_all = np.zeros(1)
+            m += 1
+
+print(data19_shi_mean[3375,1])
+data19_shi_mean_name = pd.DataFrame(data19_shi_mean)
+data19_shi_mean_name=data19_shi_mean_name.astype(np.str)
+data19_shi_mean_name.to_csv('E:/kecheng/graduation project/data/pd_MeanOfShi.csv',encoding="utf_8_sig")
