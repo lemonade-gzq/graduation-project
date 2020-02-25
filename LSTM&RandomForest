@@ -1,0 +1,150 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Tur Feb  1 18:44:29 2020
+
+@author: GZQ
+"""
+
+
+from keras.preprocessing import sequence
+from keras.models import Sequential
+from keras.layers import Dense, Embedding, Masking
+from keras.layers import LSTM
+from keras.datasets import imdb
+from keras.models import Model
+import matplotlib.pyplot as plt
+from keras.layers import Dropout
+import time
+import numpy as np
+import pandas as pd
+from sklearn.preprocessing import MinMaxScaler
+from sklearn.model_selection import train_test_split, cross_val_score
+from sklearn.preprocessing import StandardScaler
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.ensemble import ExtraTreesClassifier
+from sklearn.metrics import accuracy_score
+from keras.models import load_model
+from matplotlib import pyplot
+from keras.callbacks import ReduceLROnPlateau
+
+def build_model(layers, max_input):  # layers [81,256,128,64,16]
+
+    # 序贯模型，添加两层LSTM
+    model = Sequential()
+    # model.add(Embedding(max_input, layers[1], input_length=layers[0], mask_zero=True))
+    # model.add(Masking(0.0))
+    model.add(LSTM(layers[2], dropout=0.1, input_shape=(layers[0], 1), return_sequences=True))
+    # model.add(Dropout(0.1))
+    # model.add(LSTM(layers[2], dropout=0.2, recurrent_dropout=0.2, return_sequences=True))
+    # model.add(LSTM(layers[3], dropout=0.1, recurrent_dropout=0.1))
+    model.add(LSTM(layers[3], dropout=0.1, return_sequences=False))
+    # 第二LSTM层输出后接全连接层，该层为降维功能，将原特征个数降维为16，该层命名为Reduction
+    model.add(Dense(layers[4], activation='linear', name='Reduction'))
+    # 输出全连接层，输出神经元个数为1，激活函数选用sigmoid，大小表示01分类概率，阈值需自选
+    model.add(Dense(1, activation='sigmoid'))
+    # 运行模型，损失函数为二分类函数，精度指标为准确度
+    model.compile(optimizer='rmsprop', loss='binary_crossentropy', metrics=['accuracy'])
+    model.summary()
+
+    return model
+
+
+def random_forest(trainX, trainY):
+    rf = RandomForestClassifier(
+        criterion='entropy',
+        n_estimators=500,
+        # max_features=4,
+        random_state=1,
+        n_jobs=-1,
+        oob_score=True,
+    )
+    rf.fit(trainX, trainY)
+    return rf
+
+
+if __name__ == '__main__':
+    global_start_time = time.time()
+    np.random.seed(7)
+    # 设置LSTM网络结构，max_input最大输入样本数，features_len时序长度
+    max_input = 50000
+    features_len = 72
+    nb_epoch = 50  # 迭代次数
+    batchSize = 8
+    NeuronFirstLayer = 256  # embedding层神经元个数
+    lstmFirstLayer = 128  # 第一层lstm每步神经元个数
+    lstmSecondLayer = 64  # 第二层lstm每步神经元个数
+    Reduction_num = 16  # 降维个数
+
+    print('> Loading data... ')
+    # load the dataset
+    dataframe = pd.read_excel("pd_data_mean_19_inte2.xlsx", index='ID')
+    # dataframe = pd.read_excel("D:/Working/PythonWorking/Tencent/lstm/lstm/tx.xlsx",index='ID')
+    dataset = dataframe.values
+    dataset = dataset.astype('float32')
+    # 按照7:3的比例将数据集划分为训练集和测试集
+    X, Y = dataset[:, 1:73], dataset[:, -1]
+    # 对X特征值进行正则标准化，即将值缩放到0-1之间
+    # scaler = MinMaxScaler(feature_range=(0, 1))
+    # Stand_X = scaler.fit_transform(X)
+    # 将标准化后的数据集切分为训练集和测试集
+    X_train, X_test, Y_train, Y_test = train_test_split(X, Y, test_size=0.6, random_state=11)
+
+    dataframe2 = pd.read_excel("pd_data_19_inte.xlsx", index='ID')
+    dataset2 = dataframe2.values
+    dataset2 = dataset2.astype('float32')
+    X_predic = dataset2[:, 1:73]
+
+    print('> Data Loaded. Compiling...')
+
+    trainX = X_train.reshape(X_train.shape[0], X_train.shape[1], 1)
+    testX = X_test.reshape(X_test.shape[0], X_test.shape[1], 1)
+    predicX = X_predic.reshape(X_predic.shape[0], X_predic.shape[1], 1)
+
+    # 建模
+    model = build_model([features_len, NeuronFirstLayer, lstmFirstLayer, lstmSecondLayer, Reduction_num], max_input)
+    # 模型训练
+    # Reduction = model.fit(trainX,Y_train,batch_size=batchSize,epochs=nb_epoch,validation_data=(testX, Y_test),verbose=1,shuffle=True)
+    reduce_lr = ReduceLROnPlateau(monitor='val_loss', patience=10, mode='auto')
+    Reduction = model.fit(trainX, Y_train, batch_size=batchSize, epochs=nb_epoch, validation_data=(testX, Y_test),
+                          verbose=1, shuffle=True,callbacks=[reduce_lr])
+    # 绘制LSTM误差图像
+    pyplot.figure(figsize=(10, 8))
+    pyplot.plot(Reduction.history['acc'], 'bd--', label='train')
+    pyplot.plot(Reduction.history['val_acc'], 'k+--', label='test')
+    pyplot.legend()
+    pyplot.savefig('train_test.png', dpi=300)
+    pyplot.show()
+
+    # 调用LSTM后接全连接层输出结果
+    reduction_layer_model = Model(model.input, outputs=model.get_layer('Reduction').output)
+    trainX_output = reduction_layer_model.predict(trainX)
+    testX_output = reduction_layer_model.predict(testX)
+    predicX_output = reduction_layer_model.predict(predicX)
+
+    # 构建随机森林模型,输入特征为降维结果，输出为Y标签
+    model_rf = random_forest(trainX_output, Y_train)
+
+    CVScore = cross_val_score(model_rf, trainX_output, Y_train, cv=5, n_jobs=-1)  # 验证某个模型在某个训练集上的稳定性，输出k个预测精度。
+    CVScore_mean = CVScore.mean()
+
+    # 使用训练好的随机森林对测试集降维结果进行预测
+    testPredict = model_rf.predict(testX_output)
+    # 获取训练集测试集精度
+    testScore = accuracy_score(Y_test, testPredict)
+    mse_test = np.sum((testPredict[:, ] - Y_test[:, ]) ** 2) / len(Y_test[:, ])
+    rmse_test = mse_test ** 0.5
+    # 获取测试集训练集输出类别概率
+    # Prob_tr = model_rf.predict_proba(trainX_output)
+    # Prob_tx = model_rf.predict_proba(testX_output)
+    Prob_p = model_rf.predict_proba(predicX_output)  # 预测数据集X的概率值
+    Pred_p = model_rf.predict(predicX_output)  # 预测数据集X的结果。
+    print('TestScore:', testScore)
+    print('oob_sorce:', model_rf.oob_score_)
+    print('RMSE:', rmse_test)
+    print('CVScore:', CVScore_mean)
+    Prob_tx = pd.DataFrame(Prob_p)
+    Prob_tx = Prob_tx.astype('float32')
+    Prob_tx.to_csv('E:/kecheng/graduation project/data/概率.csv')
+    Pred_tx = pd.DataFrame(Pred_p)
+    Pred_tx = Pred_tx.astype('float32')
+    Pred_tx.to_csv('E:/kecheng/graduation project/data/结果.csv')
